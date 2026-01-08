@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { groq } from '@ai-sdk/groq';
+import { groq } from "@ai-sdk/groq";
 import { getRandomInterviewCover } from "@/lib/utils";
 import { db } from "@/firebase/admin";
 
@@ -11,8 +11,8 @@ export async function POST(request: Request) {
   const { type, role, level, techstack, amount, userid } = await request.json();
 
   try {
-    const { text: questions } = await generateText({
-      model: groq('llama-3.1-8b-instant'),
+    const { text } = await generateText({
+      model: groq("llama-3.1-8b-instant"),
       prompt: `Prepare questions for a job interview.
         The job role is ${role}.
         The job experience level is ${level}.
@@ -28,12 +28,40 @@ export async function POST(request: Request) {
         `,
     });
 
+    let parsedQuestions: string[] = [];
+
+    try {
+      // 1️⃣ Try direct JSON parse
+      const direct = JSON.parse(text);
+      if (Array.isArray(direct)) {
+        parsedQuestions = direct;
+      }
+    } catch {
+      // 2️⃣ Fallback: extract questions line by line
+      parsedQuestions = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("[") && line.endsWith("]"))
+        .flatMap((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return [];
+          }
+        });
+    }
+
+    if (parsedQuestions.length === 0) {
+      console.error("❌ Still failed to parse questions:", text);
+      throw new Error("Invalid question format from LLM");
+    }
+
     const interview = {
       role,
       type,
       level,
       techstack: techstack.split(","),
-      questions: JSON.parse(questions),
+      questions: parsedQuestions,
       userId: userid,
       finalized: true,
       coverImage: getRandomInterviewCover(),
@@ -41,7 +69,10 @@ export async function POST(request: Request) {
     };
     await db.collection("interviews").add(interview);
 
-    return Response.json({ success: true }, { status: 200 });
+    return Response.json(
+      { success: true, questions: parsedQuestions },
+      { status: 200 }
+    );
   } catch (error) {
     console.error(error);
 
