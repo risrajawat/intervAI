@@ -28,30 +28,24 @@ export async function POST(request: Request) {
         `,
     });
 
-    let parsedQuestions: string[] = [];
+    let questions: string[] = [];
 
     try {
       // 1️⃣ Try direct JSON parse
-      const direct = JSON.parse(text);
-      if (Array.isArray(direct)) {
-        parsedQuestions = direct;
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        questions = parsed.map((q) => q.trim());
       }
     } catch {
-      // 2️⃣ Fallback: extract questions line by line
-      parsedQuestions = text
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.startsWith("[") && line.endsWith("]"))
-        .flatMap((line) => {
-          try {
-            return JSON.parse(line);
-          } catch {
-            return [];
-          }
-        });
+      // fallback (very rare, but safe)
+      questions = text
+        .replace(/[\[\]"]/g, "")
+        .split(",")
+        .map((q) => q.trim())
+        .filter(Boolean);
     }
 
-    if (parsedQuestions.length === 0) {
+    if (questions.length === 0) {
       console.error("❌ Still failed to parse questions:", text);
       throw new Error("Invalid question format from LLM");
     }
@@ -61,7 +55,7 @@ export async function POST(request: Request) {
       type,
       level,
       techstack: techstack.split(","),
-      questions: parsedQuestions,
+      questions,
       userId: userid,
       finalized: true,
       coverImage: getRandomInterviewCover(),
@@ -70,7 +64,7 @@ export async function POST(request: Request) {
     await db.collection("interviews").add(interview);
 
     return Response.json(
-      { success: true, questions: parsedQuestions },
+      { success: true, text: questions.join(" ").replace(/,/g, "") },
       { status: 200 }
     );
   } catch (error) {
